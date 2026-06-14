@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Ref to Zotero",
+  "version": "1.0",
+  "description": "Resolve references and add them to Zotero",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://api.zotero.org/*",
+    "https://api.crossref.org/*",
+    "https://openlibrary.org/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Ref to Zotero"
+  },
+  "options_page": "options.html"
+}

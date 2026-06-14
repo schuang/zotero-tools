@@ -32,7 +32,7 @@ function splitRefs(text) {
 
 // Extract DOI using the standard "10.XXXX/..." pattern.
 function extractDOI(ref) {
-  const m = ref.match(/\b(10\.\d{4,}\/\S+)/);
+  const m = ref.match(/\b(10\.\d{4,}\/[^\s?#&]+)/);
   return m ? m[1].replace(/[.,;)\]]+$/, '') : null;
 }
 
@@ -97,27 +97,46 @@ async function fetchOpenLibrary(isbn) {
 function crossrefToZotero(d) {
   const authors = (d.author || []).map(a => ({
     firstName: a.given || '',
-    lastName: a.family || a.name || ''
+    lastName: a.family || a.name || '',
+    creatorType: 'author'
+  }));
+  // For books CrossRef often misclassifies the sole author as editor.
+  // When there are no authors at all, promote editors to authors for books
+  // but keep them flagged so the display can note the source ambiguity.
+  const editors = (d.editor || []).map(a => ({
+    firstName: a.given || '',
+    lastName: a.family || a.name || '',
+    creatorType: 'editor'
   }));
   const type = d.type || '';
-  const isBook = type.includes('book') || type === 'monograph';
+  const isBookType = type.includes('book') || type === 'monograph';
+  // For books with no explicit authors, fall back to editors but mark them
+  // so formatItem can note the ambiguity without losing the name.
+  const creators = authors.length ? authors
+    : (isBookType && editors.length) ? editors.map(e => ({ ...e, _fromEditor: true }))
+    : editors;
+  const isBookChapter = type === 'book-chapter';
+  const isBook = !isBookChapter && isBookType;
   // date-parts is [[year, month, day]] — take only the year element
   const date = String(d.published?.['date-parts']?.[0]?.[0] ||
                d['published-print']?.['date-parts']?.[0]?.[0] || '');
   return {
-    itemType: isBook ? 'book' : 'journalArticle',
+    itemType: isBook ? 'book' : isBookChapter ? 'bookSection' : 'journalArticle',
     title: (d.title?.[0] || '').replace(/<[^>]+>/g, ''), // strip any HTML in title
-    authors,
+    authors: creators,
     date,
     DOI: d.DOI || '',
     URL: d.URL || '',
     publisher: d.publisher || '',
-    publicationTitle: d['container-title']?.[0] || '',
+    // For books, container-title is the series name, not a journal
+    publicationTitle: (!isBook && !isBookChapter) ? (d['container-title']?.[0] || '') : '',
+    seriesTitle: isBook ? (d['container-title']?.[0] || '') : '',
+    bookTitle: isBookChapter ? (d['container-title']?.[0] || '') : '',
     volume: d.volume || '',
-    issue: d.issue || '',
+    issue: (!isBook) ? (d.issue || '') : '',
     pages: d.page || '',
-    ISBN: (d.ISBN?.[0] || '').replace(/^ISBN:/, ''),
-    ISSN: (d.ISSN?.[0] || '')
+    ISBN: (isBook || isBookChapter) ? (d.ISBN?.[0] || '').replace(/^ISBN:/, '') : '',
+    ISSN: (!isBook && !isBookChapter) ? (d.ISSN?.[0] || '') : ''
   };
 }
 
@@ -145,11 +164,18 @@ async function resolveOne(ref) {
 
 // Render a resolved item as an HTML card shown between Complete and Submit.
 function formatItem(item) {
-  const authStr = item.authors.map(a => [a.lastName, a.firstName].filter(Boolean).join(', ')).join('; ');
+  const isBook = item.itemType === 'book';
+  const authStr = item.authors.map(a => {
+    const name = [a.lastName, a.firstName].filter(Boolean).join(', ');
+    // _fromEditor means CrossRef stored this person as editor but we promoted
+    // them to author (common CrossRef data issue for single-author books)
+    return a._fromEditor ? `${name} ⚠ listed as editor in CrossRef` : a.creatorType === 'editor' ? `${name} (ed.)` : name;
+  }).join('; ');
   const fields = [
     item.title && `<span class="title">${item.title}</span>`,
     authStr && `Authors: ${authStr}`,
     item.publicationTitle && `Journal: ${item.publicationTitle}`,
+    isBook && item.seriesTitle && `Series: ${item.seriesTitle}`,
     item.publisher && `Publisher: ${item.publisher}`,
     item.date && `Date: ${item.date}`,
     item.volume && `Vol: ${item.volume}`,
@@ -172,29 +198,36 @@ function formatItem(item) {
 // as they are required by Zotero's PUT schema.
 function toZoteroPayload(item) {
   const creators = item.authors.map(a => ({
-    creatorType: 'author', firstName: a.firstName, lastName: a.lastName
+    // _fromEditor means CrossRef misclassified an author as editor — submit as author
+    creatorType: a._fromEditor ? 'author' : (a.creatorType || 'author'),
+    firstName: a.firstName,
+    lastName: a.lastName
   }));
+  const isBook = item.itemType === 'book';
+  const isBookSection = item.itemType === 'bookSection';
   const base = {
     itemType: item.itemType,
     title: item.title,
     creators,
-    date: (item.date || '').slice(0, 4), // Zotero library uses year-only format
+    date: (item.date || '').slice(0, 4),
     url: item.URL || '',
-    DOI: item.DOI || '',
-    ISBN: item.ISBN || '',
-    ISSN: item.ISSN || '',
+    DOI: (!isBook && !isBookSection) || item.DOI ? (item.DOI || '') : undefined,
+    ISBN: (isBook || isBookSection) ? (item.ISBN || '') : undefined,
+    ISSN: (!isBook && !isBookSection) ? (item.ISSN || '') : undefined,
     publisher: item.publisher || '',
-    publicationTitle: item.publicationTitle || '',
+    publicationTitle: (!isBook && !isBookSection) ? (item.publicationTitle || '') : undefined,
+    seriesTitle: isBook ? (item.seriesTitle || '') : undefined,
+    bookTitle: isBookSection ? (item.bookTitle || item.publicationTitle || '') : undefined,
     volume: item.volume || '',
-    issue: item.issue || '',
+    issue: (!isBook && !isBookSection) ? (item.issue || '') : undefined,
     pages: item.pages || '',
     place: item.place || '',
     numPages: item.numPages || '',
-    tags: [],        // required by Zotero PUT
-    collections: [], // required by Zotero PUT
-    relations: {}    // required by Zotero PUT
+    tags: [],
+    collections: [],
+    relations: {}
   };
-  return Object.fromEntries(Object.entries(base).filter(([, v]) => v !== '' || typeof v !== 'string'));
+  return Object.fromEntries(Object.entries(base).filter(([, v]) => v !== undefined && v !== ''));
 }
 
 // Search by first author last name + year (both indexed by Zotero's titleCreatorYear mode),
@@ -234,8 +267,7 @@ async function submitToZotero(userId, apiKey, items, force = false) {
 
   await Promise.all(items.map(async (item, i) => {
     const matches = existingList[i];
-    if (matches.length && !force) { skipped++; return; }
-    const payload = toZoteroPayload(item);
+    if (matches.length && !force) { skipped++; return; }    const payload = toZoteroPayload(item);
     if (matches.length && force) {
       // Replace the first matching record in-place
       const r = await fetch(`https://api.zotero.org/users/${userId}/items/${matches[0].key}`, {
@@ -259,11 +291,14 @@ async function submitToZotero(userId, apiKey, items, force = false) {
         body: JSON.stringify([payload])
       });
       if (!r.ok) throw new Error(`Zotero POST error: ${r.status}`);
+      const result = await r.json();
+      const failed = result.failed && Object.values(result.failed);
+      if (failed?.length) throw new Error(`Zotero POST failed: ${failed[0].message}`);
       added++;
     }
   }));
 
-  return { added, replaced, skipped };
+  return { added, replaced, skipped, matches: existingList.map(m => m.length) };
 }
 
 // ── Button handlers ────────────────────────────────────────────────────────
@@ -303,12 +338,12 @@ $('submit-btn').addEventListener('click', async () => {
     $('status').textContent = 'Checking for duplicates…';
     try {
       const force = $('force-insert').checked;
-      const { added, replaced, skipped } = await submitToZotero(zoteroUserId, zoteroApiKey, resolvedItems, force);
+      const { added, replaced, skipped, matches } = await submitToZotero(zoteroUserId, zoteroApiKey, resolvedItems, force);
       const parts = [];
       if (added) parts.push(`✓ ${added} added`);
       if (replaced) parts.push(`✓ ${replaced} replaced`);
-      if (skipped) parts.push(`${skipped} already in library (skipped)`);
-      $('status').textContent = parts.join(' · ') || '✓ Done';
+      if (skipped) parts.push(`${skipped} skipped (duplicate)`);
+      $('status').textContent = parts.join(' · ') || `✓ Done (force=${force}, matches=${matches})`;
       $('input').value = '';
       $('results').innerHTML = '';
       resolvedItems = [];

@@ -34,6 +34,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .ref-card.error { border-color: #e55; background: #fff0f0; }
 #status { font-size: 12px; color: #666; margin-top: 4px; min-height: 16px; }
 #options-link { display: block; text-align: right; font-size: 11px; margin-top: 6px; }
-#force-label { display: block; font-size: 11px; margin-top: 4px; cursor: pointer; }
+#force-label { display: flex; align-items: center; gap: 6px; font-size: 11px; margin-top: 4px; cursor: pointer; }
+#force-label input { display: inline; width: auto; margin-top: 0; }
 label { display: block; margin-bottom: 8px; }
 label input { display: block; width: 100%; margin-top: 2px; box-sizing: border-box; }

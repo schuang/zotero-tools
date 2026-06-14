@@ -93,6 +93,18 @@ async function fetchOpenLibrary(isbn) {
   };
 }
 
+// Decode HTML entities (e.g. "&amp;" → "&", "&lt;" → "<") returned by CrossRef.
+function decodeEntities(str) {
+  if (!str) return str;
+  return str
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'");
+}
+
 // Normalize a CrossRef API response into our internal item format.
 function crossrefToZotero(d) {
   const authors = (d.author || []).map(a => ({
@@ -122,16 +134,16 @@ function crossrefToZotero(d) {
                d['published-print']?.['date-parts']?.[0]?.[0] || '');
   return {
     itemType: isBook ? 'book' : isBookChapter ? 'bookSection' : 'journalArticle',
-    title: (d.title?.[0] || '').replace(/<[^>]+>/g, ''), // strip any HTML in title
+    title: decodeEntities((d.title?.[0] || '').replace(/<[^>]+>/g, '')), // strip HTML tags, then decode entities
     authors: creators,
     date,
     DOI: d.DOI || '',
     URL: d.URL || '',
-    publisher: d.publisher || '',
+    publisher: decodeEntities(d.publisher || ''),
     // For books, container-title is the series name, not a journal
-    publicationTitle: (!isBook && !isBookChapter) ? (d['container-title']?.[0] || '') : '',
-    seriesTitle: isBook ? (d['container-title']?.[0] || '') : '',
-    bookTitle: isBookChapter ? (d['container-title']?.[0] || '') : '',
+    publicationTitle: (!isBook && !isBookChapter) ? decodeEntities(d['container-title']?.[0] || '') : '',
+    seriesTitle: isBook ? decodeEntities(d['container-title']?.[0] || '') : '',
+    bookTitle: isBookChapter ? decodeEntities(d['container-title']?.[0] || '') : '',
     volume: d.volume || '',
     issue: (!isBook) ? (d.issue || '') : '',
     pages: d.page || '',

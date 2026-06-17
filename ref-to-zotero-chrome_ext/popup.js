@@ -65,6 +65,56 @@ async function searchCrossRef(query) {
   return crossrefToZotero(items[0]);
 }
 
+// Search OpenAlex by free text; returns authors in correct publication order.
+// Falls back gracefully if unavailable.
+async function searchOpenAlex(query) {
+  try {
+    const fields = 'title,authorships,publication_year,doi,primary_location,biblio';
+    const r = await fetch(
+      `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=1&select=${fields}`
+    );
+    if (!r.ok) return null;
+    const results = (await r.json()).results;
+    if (!results?.length) return null;
+    const p = results[0];
+    const authors = (p.authorships || []).map(a => {
+      const parts = (a.author?.display_name || '').trim().split(/\s+/);
+      return { firstName: parts.slice(0, -1).join(' '), lastName: parts.at(-1) || '', creatorType: 'author' };
+    });
+    // Strip leading "https://doi.org/" prefix if present
+    const doi = (p.doi || '').replace(/^https?:\/\/doi\.org\//i, '');
+    // Use CrossRef for rich metadata but replace its authors with OpenAlex's correct order.
+    if (doi) {
+      const full = await fetchCrossRef(doi);
+      if (full) { full.authors = authors; return full; }
+    }
+    return {
+      itemType: 'journalArticle',
+      title: p.title || '',
+      authors,
+      date: p.publication_year ? String(p.publication_year) : '',
+      DOI: doi,
+      publicationTitle: p.primary_location?.source?.display_name || '',
+      volume: p.biblio?.volume || '',
+      issue: p.biblio?.issue || '',
+      pages: [p.biblio?.first_page, p.biblio?.last_page].filter(Boolean).join('-'),
+      ISSN: '', URL: '', publisher: '', seriesTitle: '', bookTitle: ''
+    };
+  } catch {
+    return null;
+  }
+}
+
+// If the reference starts with an author's last name (e.g. "Madaan et al."),
+// move that author to the front to correct CrossRef's alphabetical ordering.
+function reorderAuthors(authors, ref) {
+  const firstWord = ref.match(/^([A-Za-zÀ-ÖØ-öø-ÿ'-]+)/)?.[1];
+  if (!firstWord) return authors;
+  const idx = authors.findIndex(a => a.lastName.toLowerCase() === firstWord.toLowerCase());
+  if (idx <= 0) return authors;
+  return [authors[idx], ...authors.slice(0, idx), ...authors.slice(idx + 1)];
+}
+
 // Fetch book metadata from Open Library by ISBN.
 // Author names require a second request per author key.
 async function fetchOpenLibrary(isbn) {
@@ -154,7 +204,7 @@ function crossrefToZotero(d) {
 
 // ── Resolve a single reference ─────────────────────────────────────────────
 
-// Resolution priority: DOI (exact CrossRef lookup) → ISBN (Open Library) → text search (CrossRef).
+// Resolution priority: DOI (exact CrossRef lookup) → ISBN (Open Library) → OpenAlex → CrossRef text search.
 async function resolveOne(ref) {
   const doi = extractDOI(ref);
   if (doi) {
@@ -166,9 +216,11 @@ async function resolveOne(ref) {
     const item = await fetchOpenLibrary(isbn);
     if (item) return item;
   }
-  const item = await searchCrossRef(ref);
-  if (item) return item;
-  // Could not resolve — return raw text so the user can still submit manually
+  const oa = await searchOpenAlex(ref);
+  if (oa) return oa;
+  // OpenAlex unavailable — fall back to CrossRef with heuristic reorder
+  const cr = await searchCrossRef(ref);
+  if (cr) { cr.authors = reorderAuthors(cr.authors, ref); return cr; }
   return { itemType: 'journalArticle', title: ref, authors: [], _unresolved: true };
 }
 

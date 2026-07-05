@@ -3,13 +3,15 @@
 zotero_manager.py - Main entry point for Zotero library maintenance tasks.
 
 Available subcommands:
+    add-url           - Add URL from DOI when URL is empty.
     clear-extra       - Clear the Extra field for items matching a prefix.
     fix-titles        - Normalise ALL-CAPS titles to sentence/title case.
-    all               - Run all available tasks (dry run by default).
+    all               - Run tasks that have default arguments (dry run by default).
 
 Each subcommand supports its own --apply flag to write changes.
 
 Usage:
+    python zotero_manager.py add-url --doi "10.1000/example" --apply
     python zotero_manager.py clear-extra --apply
     python zotero_manager.py fix-titles --apply
     python zotero_manager.py all --apply
@@ -22,13 +24,14 @@ Environment variables (or edit zotero_tasks/common.py):
 import argparse
 import sys
 
-from zotero_tasks import clear_extra, fix_titles
+from zotero_tasks import add_url, clear_extra, fix_titles
 
 
 # ---------------------------------------------------------------------------
 # Registry of all available task modules.
 # ---------------------------------------------------------------------------
 TASKS = {
+    "add-url": add_url,
     "clear-extra": clear_extra,
     "fix-titles":  fix_titles,
 }
@@ -57,7 +60,7 @@ def main():
     # Special "all" subcommand that runs every task sequentially.
     sub_all = subparsers.add_parser(
         "all",
-        help="Run all available tasks in sequence.",
+        help="Run tasks that have default arguments in sequence.",
     )
     sub_all.add_argument(
         "--apply",
@@ -92,6 +95,10 @@ def run_all(args):
     # The individual task modules only need args.apply (and any task-specific
     # options, which we set to defaults here).
     for name, module in TASKS.items():
+        if not getattr(module, "RUN_IN_ALL", True):
+            print(f"\nSkipping task requiring explicit options: {name}")
+            continue
+
         # Create a fresh argparse.Namespace with defaults for this task.
         # We'll inject args.apply from the global --apply flag.
         task_parser = argparse.ArgumentParser()

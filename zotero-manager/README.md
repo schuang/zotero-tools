@@ -4,14 +4,22 @@ Python-based maintenance tools for cleaning and normalising Zotero online librar
 
 ## Features
 
-### 1. **clear-extra** - Clear Extra field
+### 1. **add-url** - Add URL from DOI
+Scans your library for journal articles matching a required DOI, then fills `URL` as `URL_PREFIX/DOI` (default prefix: `https://doi.org`). Existing URL values are overwritten when `--apply` is used. DOIs containing `arxiv` in any case are skipped.
+
+- Prints metadata and the would-be URL for matched items
+- Requires explicit DOI matching with `--doi`
+- Supports custom URL prefixes with `--url-prefix`
+- Dry-run by default; use `--apply` to write changes
+
+### 2. **clear-extra** - Clear Extra field
 Scans your library for items whose `Extra` field starts with a configurable prefix (default: `"LLMKB SHA256"`) and clears the field.
 
 - Prints metadata (author, title, date, venue) for matched items
 - Supports custom prefix matching with `--prefix`
 - Dry-run by default; use `--apply` to write changes
 
-### 2. **fix-titles** - Normalise ALL-CAPS titles
+### 3. **fix-titles** - Normalise ALL-CAPS titles
 Finds items with titles in ALL-CAPS and converts them to proper case:
 
 - **Sentence case** for articles, preprints, conference papers, reports
@@ -19,8 +27,8 @@ Finds items with titles in ALL-CAPS and converts them to proper case:
 - **Preserves acronyms** ≤ 4 characters (DNA, HIV, NLP, fMRI, etc.)
 - Respects sub-title boundaries (capitalises after `:`, `---`, `-`)
 
-### 3. **all** - Run all tasks
-Executes all available tasks sequentially. Each task runs in dry-run mode unless `--apply` is specified.
+### 4. **all** - Run all tasks
+Executes tasks that have default arguments sequentially. Tasks requiring explicit options, such as `add-url --doi`, are skipped. Each task runs in dry-run mode unless `--apply` is specified.
 
 ---
 
@@ -73,10 +81,12 @@ python zotero_manager.py --help
 # Run a specific task (dry run)
 python zotero_manager.py clear-extra
 python zotero_manager.py fix-titles
+python zotero_manager.py add-url --doi "10.1000/example"
 
 # Apply changes (writes to Zotero)
 python zotero_manager.py clear-extra --apply
 python zotero_manager.py fix-titles --apply
+python zotero_manager.py add-url --doi "10.1000/example" --apply
 
 # Run all tasks at once
 python zotero_manager.py all --apply
@@ -91,6 +101,18 @@ python zotero_manager.py clear-extra --prefix "MY PREFIX"
 
 # Show help for this task
 python zotero_manager.py clear-extra --help
+```
+
+#### add-url
+```bash
+# Match a specific DOI
+python zotero_manager.py add-url --doi "10.1000/example"
+
+# Use a custom URL prefix
+python zotero_manager.py add-url --doi "10.1000/example" --url-prefix "https://doi.org"
+
+# Show help for this task
+python zotero_manager.py add-url --help
 ```
 
 #### fix-titles
@@ -109,8 +131,9 @@ zotero-clear-extra/
 ├── zotero_tasks/              # Task modules
 │   ├── __init__.py            # Package exports
 │   ├── common.py              # Shared utilities (connect, iter_items, format_metadata)
-│   ├── clear_extra.py         # Feature 1: clear Extra field
-│   └── fix_titles.py          # Feature 2: normalise ALL-CAPS titles
+│   ├── add_url.py             # Feature 1: add URL from DOI
+│   ├── clear_extra.py         # Feature 2: clear Extra field
+│   └── fix_titles.py          # Feature 3: normalise ALL-CAPS titles
 └── README.md                  # This file
 ```
 

@@ -280,7 +280,7 @@ function toZoteroPayload(item) {
     ISSN: (!isBook && !isBookSection) ? (item.ISSN || '') : undefined,
     publisher: item.publisher || '',
     publicationTitle: (!isBook && !isBookSection) ? (item.publicationTitle || '') : undefined,
-    seriesTitle: isBook ? (item.seriesTitle || '') : undefined,
+    series: isBook ? (item.seriesTitle || '') : undefined,
     bookTitle: isBookSection ? (item.bookTitle || item.publicationTitle || '') : undefined,
     volume: item.volume || '',
     issue: (!isBook && !isBookSection) ? (item.issue || '') : undefined,
